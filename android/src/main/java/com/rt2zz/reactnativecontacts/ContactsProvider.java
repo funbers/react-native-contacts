@@ -92,8 +92,9 @@ public class ContactsProvider {
             Cursor cursor = contentResolver.query(
                     ContactsContract.Data.CONTENT_URI,
                     FULL_PROJECTION.toArray(new String[FULL_PROJECTION.size()]),
-                    ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " LIKE ?",
-                    new String[]{"%" + searchString + "%"},
+                    ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " LIKE ? OR " +
+                            Organization.COMPANY + " LIKE ?",
+                    new String[]{"%" + searchString + "%", "%" + searchString + "%"},
                     null
             );
 
@@ -200,6 +201,7 @@ public class ContactsProvider {
                     + ContactsContract.Data.MIMETYPE + "=? OR "
                     + ContactsContract.Data.MIMETYPE + "=? OR "
                     + ContactsContract.Data.MIMETYPE + "=? OR "
+                    + ContactsContract.Data.MIMETYPE + "=? OR "
                     + ContactsContract.Data.MIMETYPE + "=?",
                     new String[]{
                         Email.CONTENT_ITEM_TYPE,
@@ -209,6 +211,7 @@ public class ContactsProvider {
                         StructuredPostal.CONTENT_ITEM_TYPE,
                         Note.CONTENT_ITEM_TYPE,
                         Website.CONTENT_ITEM_TYPE,
+                        Event.CONTENT_ITEM_TYPE,
                     },
                     null
             );

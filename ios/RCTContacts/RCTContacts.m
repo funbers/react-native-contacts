@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import "RCTContacts.h"
 #import <AssetsLibrary/AssetsLibrary.h>
+#import <React/RCTLog.h>
 
 @implementation RCTContacts {
     CNContactStore * contactStore;
@@ -269,7 +270,7 @@ RCT_EXPORT_METHOD(getAllWithoutPhotos:(RCTResponseSenderBlock) callback)
             [email setObject: label forKey:@"label"];
             [emailAddreses addObject:email];
         } else {
-            NSLog(@"ignoring blank email");
+            RCTLog(@"ignoring blank email");
         }
     }
 
@@ -336,19 +337,22 @@ RCT_EXPORT_METHOD(getAllWithoutPhotos:(RCTResponseSenderBlock) callback)
 
 -(NSString *) getFilePathForThumbnailImage:(CNContact*) contact recordID:(NSString*) recordID
 {
-    NSString *filepath = [self thumbnailFilePath:recordID];
-
-    if([[NSFileManager defaultManager] fileExistsAtPath:filepath]) {
-        return filepath;
-    }
-
     if (contact.imageDataAvailable){
+        NSString *filepath = [self thumbnailFilePath:recordID];
         NSData *contactImageData = contact.thumbnailImageData;
+
+        if ([[NSFileManager defaultManager] fileExistsAtPath:filepath]) {
+            NSData *existingImageData = [NSData dataWithContentsOfFile: filepath];
+
+            if([contactImageData isEqual: existingImageData]) {
+                return filepath;
+            }
+        }
 
         BOOL success = [[NSFileManager defaultManager] createFileAtPath:filepath contents:contactImageData attributes:nil];
 
         if (!success) {
-            NSLog(@"Unable to copy image");
+            RCTLog(@"Unable to copy image");
             return @"";
         }
 
@@ -399,6 +403,51 @@ RCT_EXPORT_METHOD(getPhotoForId:(nonnull NSString *)recordID callback:(RCTRespon
     CNContact* contact = [addressBook unifiedContactWithIdentifier:recordID keysToFetch:keysToFetch error:&contactError];
 
     return [self getFilePathForThumbnailImage:contact recordID:recordID];
+}
+
+RCT_EXPORT_METHOD(getContactById:(nonnull NSString *)recordID callback:(RCTResponseSenderBlock)callback)
+{
+    CNContactStore* contactStore = [self contactsStore:callback];
+    if(!contactStore)
+        return;
+
+    CNEntityType entityType = CNEntityTypeContacts;
+    if([CNContactStore authorizationStatusForEntityType:entityType] == CNAuthorizationStatusNotDetermined)
+    {
+        [contactStore requestAccessForEntityType:entityType completionHandler:^(BOOL granted, NSError * _Nullable error) {
+            if(granted){
+                callback(@[[NSNull null], [self getContact:recordID addressBook:contactStore withThumbnails:false]]);
+            }
+        }];
+    }
+    else if( [CNContactStore authorizationStatusForEntityType:entityType]== CNAuthorizationStatusAuthorized)
+    {
+        callback(@[[NSNull null], [self getContact:recordID addressBook:contactStore withThumbnails:false]]);
+    }
+}
+
+-(NSString *) getContact:(NSString *)recordID
+                               addressBook:(CNContactStore*)addressBook
+                               withThumbnails:(BOOL) withThumbnails
+{
+    NSError* contactError;
+    NSArray *keysToFetch = @[
+                      CNContactEmailAddressesKey,
+                      CNContactPhoneNumbersKey,
+                      CNContactFamilyNameKey,
+                      CNContactGivenNameKey,
+                      CNContactMiddleNameKey,
+                      CNContactPostalAddressesKey,
+                      CNContactOrganizationNameKey,
+                      CNContactJobTitleKey,
+                      CNContactImageDataAvailableKey,
+                      CNContactNoteKey,
+                      CNContactUrlAddressesKey,
+                      CNContactBirthdayKey
+                      ];
+    CNContact* contact = [addressBook unifiedContactWithIdentifier:recordID keysToFetch:keysToFetch error:&contactError];
+
+    return [self contactToDictionary: contact withThumbnails:withThumbnails];
 }
 
 
@@ -743,7 +792,7 @@ enum { WDASSETURL_PENDINGREADS = 1, WDASSETURL_ALLFINISHED = 0};
                           [albumReadLock lock];
                           [albumReadLock unlockWithCondition:WDASSETURL_ALLFINISHED];
                       } failureBlock:^(NSError *error) {
-                          NSLog(@"asset error: %@", [error localizedDescription]);
+                          RCTLog(@"asset error: %@", [error localizedDescription]);
 
                           [albumReadLock lock];
                           [albumReadLock unlockWithCondition:WDASSETURL_ALLFINISHED];
@@ -753,7 +802,7 @@ enum { WDASSETURL_PENDINGREADS = 1, WDASSETURL_ALLFINISHED = 0};
     [albumReadLock lockWhenCondition:WDASSETURL_ALLFINISHED];
     [albumReadLock unlock];
 
-    NSLog(@"asset lookup finished: %@ %@", [assetURL absoluteString], (data ? @"exists" : @"does not exist"));
+    RCTLog(@"asset lookup finished: %@ %@", [assetURL absoluteString], (data ? @"exists" : @"does not exist"));
 
     return data;
 }
@@ -794,7 +843,7 @@ RCT_EXPORT_METHOD(writePhotoToPath:(RCTResponseSenderBlock) callback)
         CNContactStore* store = [[CNContactStore alloc] init];
 
         if(!store.defaultContainerIdentifier) {
-            NSLog(@"warn - no contact store container id");
+            RCTLog(@"warn - no contact store container id");
 
             CNAuthorizationStatus authStatus = [CNContactStore authorizationStatusForEntityType:CNEntityTypeContacts];
             if (authStatus == CNAuthorizationStatusDenied || authStatus == CNAuthorizationStatusRestricted){
