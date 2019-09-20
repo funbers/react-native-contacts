@@ -85,7 +85,7 @@ RCT_EXPORT_METHOD(getContactsMatchingString:(NSString *)string callback:(RCTResp
                       CNContactOrganizationNameKey,
                       CNContactJobTitleKey,
                       CNContactImageDataAvailableKey,
-                      CNContactNoteKey,
+                      CNContactThumbnailImageDataKey,
                       CNContactUrlAddressesKey,
                       CNContactBirthdayKey
                       ];
@@ -93,7 +93,46 @@ RCT_EXPORT_METHOD(getContactsMatchingString:(NSString *)string callback:(RCTResp
                                                            keysToFetch:keys
                                                                  error:&contactError];
     [arrayOfContacts enumerateObjectsUsingBlock:^(CNContact * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
-        NSDictionary *contactDictionary = [self contactToDictionary:obj withThumbnails:NO];
+        NSDictionary *contactDictionary = [self contactToDictionary:obj withThumbnails:true];
+        [contacts addObject:contactDictionary];
+    }];
+    callback(@[[NSNull null], contacts]);
+}
+
+RCT_EXPORT_METHOD(getContactsByPhoneNumber:(NSString *)string callback:(RCTResponseSenderBlock) callback)
+{
+    CNContactStore *contactStore = [[CNContactStore alloc] init];
+    if (!contactStore)
+        return;
+    [self getContactsFromAddressBook:contactStore byPhoneNumber:string callback:callback];
+}
+
+-(void) getContactsFromAddressBook:(CNContactStore *)store
+                    byPhoneNumber:(NSString *)phoneNumber
+                          callback:(RCTResponseSenderBlock)callback
+{
+    NSMutableArray *contacts = [[NSMutableArray alloc] init];
+    NSError *contactError = nil;
+    NSArray *keys = @[
+                      CNContactEmailAddressesKey,
+                      CNContactPhoneNumbersKey,
+                      CNContactFamilyNameKey,
+                      CNContactGivenNameKey,
+                      CNContactMiddleNameKey,
+                      CNContactPostalAddressesKey,
+                      CNContactOrganizationNameKey,
+                      CNContactJobTitleKey,
+                      CNContactImageDataAvailableKey,
+                      CNContactThumbnailImageDataKey,
+                      CNContactUrlAddressesKey,
+                      CNContactBirthdayKey
+                      ];
+    CNPhoneNumber *cnPhoneNumber = [[CNPhoneNumber alloc] initWithStringValue:phoneNumber];
+    NSArray *arrayOfContacts = [store unifiedContactsMatchingPredicate:[CNContact predicateForContactsMatchingPhoneNumber:cnPhoneNumber]
+                                                           keysToFetch:keys
+                                                                 error:&contactError];
+    [arrayOfContacts enumerateObjectsUsingBlock:^(CNContact * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+        NSDictionary *contactDictionary = [self contactToDictionary:obj withThumbnails:true];
         [contacts addObject:contactDictionary];
     }];
     callback(@[[NSNull null], contacts]);
@@ -140,7 +179,6 @@ RCT_EXPORT_METHOD(getAllWithoutPhotos:(RCTResponseSenderBlock) callback)
                                        CNContactOrganizationNameKey,
                                        CNContactJobTitleKey,
                                        CNContactImageDataAvailableKey,
-                                       CNContactNoteKey,
                                        CNContactUrlAddressesKey,
                                        CNContactBirthdayKey
                                        ]];
@@ -169,7 +207,6 @@ RCT_EXPORT_METHOD(getAllWithoutPhotos:(RCTResponseSenderBlock) callback)
     NSString *middleName = person.middleName;
     NSString *company = person.organizationName;
     NSString *jobTitle = person.jobTitle;
-    NSString *note = person.note;
     NSDateComponents *birthday = person.birthday;
 
     [output setObject:recordID forKey: @"recordID"];
@@ -192,10 +229,6 @@ RCT_EXPORT_METHOD(getAllWithoutPhotos:(RCTResponseSenderBlock) callback)
 
     if(jobTitle){
         [output setObject: (jobTitle) ? jobTitle : @"" forKey:@"jobTitle"];
-    }
-
-    if(note){
-        [output setObject: (note) ? note : @"" forKey:@"note"];
     }
 
     if (birthday) {
@@ -441,11 +474,13 @@ RCT_EXPORT_METHOD(getContactById:(nonnull NSString *)recordID callback:(RCTRespo
                       CNContactOrganizationNameKey,
                       CNContactJobTitleKey,
                       CNContactImageDataAvailableKey,
-                      CNContactNoteKey,
                       CNContactUrlAddressesKey,
                       CNContactBirthdayKey
                       ];
     CNContact* contact = [addressBook unifiedContactWithIdentifier:recordID keysToFetch:keysToFetch error:&contactError];
+
+    if(!contact)
+            return nil;
 
     return [self contactToDictionary: contact withThumbnails:withThumbnails];
 }
@@ -528,16 +563,23 @@ RCT_EXPORT_METHOD(openExistingContact:(NSDictionary *)contactData callback:(RCTR
 
         dispatch_async(dispatch_get_main_queue(), ^{
             UINavigationController* navigation = [[UINavigationController alloc] initWithRootViewController:contactViewController];
-            UIViewController *rooViewController = (UIViewController*)[[[[UIApplication sharedApplication] delegate] window] rootViewController];
+            
+            UIViewController *currentViewController = [UIApplication sharedApplication].keyWindow.rootViewController;
+            
+            while (currentViewController.presentedViewController)
+            {
+                currentViewController = currentViewController.presentedViewController;
+            }
 
             // Cover the contact view with an activity indicator so we can put it in edit mode without user seeing the transition
             UIActivityIndicatorView *activityIndicatorView = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleGray];
-            activityIndicatorView.frame = UIScreen.mainScreen.applicationFrame;
+            activityIndicatorView.frame = UIApplication.sharedApplication.keyWindow.frame;
             [activityIndicatorView startAnimating];
             activityIndicatorView.backgroundColor = [UIColor whiteColor];
             [navigation.view addSubview:activityIndicatorView];
 
-            [rooViewController presentViewController:navigation animated:YES completion:nil];
+            [currentViewController presentViewController:navigation animated:YES completion:nil];
+
 
             // TODO should this 'fake click' method be used? For a brief instance
             // Fake click edit button to enter edit mode
@@ -614,7 +656,6 @@ RCT_EXPORT_METHOD(updateContact:(NSDictionary *)contactData callback:(RCTRespons
                              CNContactImageDataAvailableKey,
                              CNContactThumbnailImageDataKey,
                              CNContactImageDataKey,
-                             CNContactNoteKey,
                              CNContactUrlAddressesKey,
                              CNContactBirthdayKey
                              ];
@@ -643,7 +684,6 @@ RCT_EXPORT_METHOD(updateContact:(NSDictionary *)contactData callback:(RCTRespons
     NSString *middleName = [contactData valueForKey:@"middleName"];
     NSString *company = [contactData valueForKey:@"company"];
     NSString *jobTitle = [contactData valueForKey:@"jobTitle"];
-    NSString *note = [contactData valueForKey:@"note"];
 
     NSDictionary *birthday = [contactData valueForKey:@"birthday"];
 
@@ -652,7 +692,6 @@ RCT_EXPORT_METHOD(updateContact:(NSDictionary *)contactData callback:(RCTRespons
     contact.middleName = middleName;
     contact.organizationName = company;
     contact.jobTitle = jobTitle;
-    contact.note = note;
 
     if (birthday) {
         NSDateComponents *components;
